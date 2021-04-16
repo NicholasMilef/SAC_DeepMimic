@@ -1,30 +1,28 @@
 import os
 import pdb
+import argparse
 
 import gym
-import pybullet
+import SAC, REINFORCE
 from pybullet_envs.deep_mimic.gym_env import HumanoidDeepMimicWalkBulletEnv
 
-
-def train_episode(env):
-    s = env.reset()
-
-    done = False
-    while True:  # while not done:
-        s_p, r, done, _ = env.step(env.action_space.sample())
-        s = s_p
-        env.render()
-        # pdb.set_trace()
-
-
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--method', help="RL method to use")
+    args = parser.parse_args()
+
+    if args.method == 'SAC':
+        solver = SAC()
+    else:
+        solver = REINFORCE()
+
     env = gym.make("HumanoidDeepMimicWalkBulletEnv-v1")
 
     num_iterations = 100
 
     for i in range(num_iterations):
         env.render(mode="human")
-        train_episode(env)
+        solver.train_episode(env)
 
     env.close()
 
