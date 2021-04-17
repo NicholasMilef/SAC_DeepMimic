@@ -3,6 +3,7 @@ import abc
 
 class AbstractSolver(abc.ABC):
 	def __init__(self, env, options):
+		self.options = options
 		self.env = env
 
 	def step(self, action):
