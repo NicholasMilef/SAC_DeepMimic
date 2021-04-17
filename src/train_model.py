@@ -13,11 +13,12 @@ def main():
     parser.add_argument('-m', '--method', help="RL method to use")
     args = parser.parse_args()
 
-    num_iterations = 100
+    num_iterations = 100000
     env = gym.make("HumanoidDeepMimicWalkBulletEnv-v1")
 
     options = {
-        'lr': 0.001
+        'lr': 0.001,
+        'gamma': 0.95
     }
 
     if args.method == 'sac':
