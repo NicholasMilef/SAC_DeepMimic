@@ -1,6 +1,7 @@
 import os
+import abc
 
-class AbstractSolver:
+class AbstractSolver(abc.ABC):
 	def __init__(self, env, options):
 		self.env = env
 
@@ -10,6 +11,6 @@ class AbstractSolver:
 	def run_greedy():
 		pass
 
-	@abstractmethod
+	@abc.abstractmethod
 	def train_episode(self):
 		pass

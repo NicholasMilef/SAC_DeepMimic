@@ -1,4 +1,4 @@
-import AbstractSolver
+from Solvers.AbstractSolver import AbstractSolver
 
 class SAC(AbstractSolver):
 	def __init__(self, env, options):

@@ -3,7 +3,9 @@ import pdb
 import argparse
 
 import gym
-import SAC, REINFORCE
+from Solvers.AbstractSolver import AbstractSolver
+from Solvers.SAC import SAC
+from Solvers.REINFORCE import REINFORCE
 from pybullet_envs.deep_mimic.gym_env import HumanoidDeepMimicWalkBulletEnv
 
 def main():
@@ -11,10 +13,13 @@ def main():
     parser.add_argument('-m', '--method', help="RL method to use")
     args = parser.parse_args()
 
-    if args.method == 'SAC':
+    if args.method == 'sac':
         solver = SAC()
-    else:
+    elif args.method == 'r':
         solver = REINFORCE()
+    else:
+        print('Unsupported Method')
+        exit()
 
     env = gym.make("HumanoidDeepMimicWalkBulletEnv-v1")
 
