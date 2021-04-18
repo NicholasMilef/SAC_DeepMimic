@@ -130,11 +130,15 @@ class SAC(AbstractSolver):
 
             log_std = K.clip(log_std, -20., 2.)
             log_liks = -1 / 2 * log_std - 1 / 2 * ((raw_actions - means) / K.exp(log_std))**2
-            Q_value = tf.minimum(
-                tf.squeeze(self.QF1.predict([states, actions]), axis=1),
-                tf.squeeze(self.QF2.predict([states, actions]), axis=1)
-            )
-            return tf.reduce_mean(self.alpha * log_liks - Q_value)
+            shape = K.int_shape(states)
+            if shape[0] is not None:
+                Q_value = tf.minimum(
+                    tf.squeeze(self.QF1.predict([states, actions]), axis=1),
+                    tf.squeeze(self.QF2.predict([states, actions]), axis=1)
+                )
+            else:
+                Q_value = np.zeros_like(log_liks)
+            return tf.reduce_mean(0.2 * log_liks - Q_value)
         return loss
 
     def create_greedy_policy(self):
@@ -202,7 +206,7 @@ class SAC(AbstractSolver):
             self.QF2.fit([states, actions], z, verbose=0)
 
             # update actor function.
-            self.actor.fit(states, states, verbose=1)
+            # self.actor.fit(states, [np.zeros_like(_), np.zeros_like(raw_actions), np.zeros_like(means), np.zeros_like(log_std)], verbose=1)  # the second argument is not necessary.
             # moving average of parameters of self.target_VF and self.VF.
             self.update_target_VF()
             t += 1
