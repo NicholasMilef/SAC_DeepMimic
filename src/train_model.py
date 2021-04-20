@@ -8,6 +8,7 @@ from Solvers.SAC import SAC
 from Solvers.REINFORCE import REINFORCE
 from pybullet_envs.deep_mimic.gym_env import HumanoidDeepMimicWalkBulletEnv
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--method', help="RL method to use")
@@ -18,7 +19,9 @@ def main():
 
     options = {
         'lr': 0.001,
-        'gamma': 0.95
+        'gamma': 0.95,
+        'replay_memory_size': 1000000,
+        'batch_size': 128
     }
 
     if args.method == 'sac':
