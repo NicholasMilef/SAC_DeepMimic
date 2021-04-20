@@ -1,7 +1,8 @@
 import gym
 import numpy as np
 from collections import deque
-
+import math
+import random
 import torch
 from torch import nn
 import torch.optim as optim
@@ -78,15 +79,16 @@ class PolicySAC(nn.Module):
     def evaluate(self, state, epsilon=1e-6):
         mean, log_std = self.forward(state)
         std = log_std.exp()
-        #loc = torch.zeros(len(mean))
-        #scale = torch.ones(len(mean))
-        #mvn = MultivariateNormal(loc, scale_tril=torch.diag(scale))
-        #z = mvn.sample()
+        # loc = torch.zeros(len(mean))
+        # scale = torch.ones(len(mean))
+        # mvn = MultivariateNormal(loc, scale_tril=torch.diag(scale))
+        # z = mvn.sample()
         normal = Normal(0, 1)
         z = normal.sample()
         action = torch.tanh(mean + std * z)
         log_prob = Normal(mean, std).log_prob(mean + std * z) - torch.log(1 - action.pow(2) + epsilon)
-        #log_prob = MultivariateNormal(mean, std).log_prob(mean+ std*z.to(device)) - torch.log(1 - action.pow(2) + epsilon)
+
+        # log_prob = MultivariateNormal(mean, std).log_prob(mean+ std*z.to(device)) - torch.log(1 - action.pow(2) + epsilon)
         return action, log_prob, z, mean, log_std
 
     def get_action(self, state):
@@ -94,14 +96,35 @@ class PolicySAC(nn.Module):
         mean, log_std = self.forward(state)
         std = log_std.exp()
 
-        #mvn = MultivariateNormal(loc, scale_tril=torch.diag(scale))
-        #z = mvn.sample()
+        # mvn = MultivariateNormal(loc, scale_tril=torch.diag(scale))
+        # z = mvn.sample()
         normal = Normal(0, 1)
         z = normal.sample()
         action = torch.tanh(mean + std * z)
 
         action = action.cpu()  # .detach().cpu().numpy()
         return action[0]
+
+
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.buffer = []
+        self.position = 0
+
+    def push(self, state, action, reward, next_state, done):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        state, action, reward, next_state, done = map(np.stack, zip(*batch))
+        return state, action, reward, next_state, done
+
+    def __len__(self):
+        return len(self.buffer)
 
 
 class SAC(AbstractSolver):
@@ -111,7 +134,7 @@ class SAC(AbstractSolver):
         self.env = NormalizedActions(gym.make("Pendulum-v0"))
         self.state_size = (self.env.observation_space.shape[0],)
         self.action_size = len(self.env.action_space.sample())
-        self.replay_buffer = deque()
+        self.replay_buffer = ReplayBuffer(self.options['replay_memory_size'])
         # To escape from the maximum bias, we need two independent Q functions.
         self.QF1 = SoftQFunction(self.state_size, self.action_size)
         self.QF2 = SoftQFunction(self.state_size, self.action_size)
@@ -137,6 +160,53 @@ class SAC(AbstractSolver):
         for target_param, param in zip(self.target_VF.parameters(), self.VF.parameters()):
             target_param.data.copy_(param.data)
 
+    def update(self, batch_size, gamma=0.99):
+
+        state, action, reward, next_state, done = self.replay_buffer.sample(batch_size)
+
+        state = torch.FloatTensor(state)
+        next_state = torch.FloatTensor(next_state)
+        action = torch.FloatTensor(action)
+        reward = torch.FloatTensor(reward).unsqueeze(1)
+        done = torch.FloatTensor(np.float32(done)).unsqueeze(1)
+
+        predicted_q_value1 = self.QF1(state, action)
+        predicted_q_value2 = self.QF2(state, action)
+        predicted_value = self.VF(state)
+        new_action, log_prob, epsilon, mean, log_std = self.actor.evaluate(state)
+
+    # Training Q Function
+        target_value = self.target_VF(next_state)
+        target_q_value = reward + (1 - done) * gamma * target_value
+        q_value_loss1 = nn.MSELoss()(predicted_q_value1, target_q_value.detach())
+        q_value_loss2 = nn.MSELoss()(predicted_q_value2, target_q_value.detach())
+
+        self.QF1_optimizer.zero_grad()
+        q_value_loss1.backward()
+        self.QF1_optimizer.step()
+        self.QF2_optimizer.zero_grad()
+        q_value_loss2.backward()
+        self.QF2_optimizer.step()
+    # Training Value Function
+        predicted_new_q_value = torch.min(self.QF1(state, new_action), self.QF2(state, new_action))
+        target_value_func = predicted_new_q_value - log_prob
+        value_loss = nn.MSELoss()(predicted_value, target_value_func.detach())
+
+        self.VF_optimizer.zero_grad()
+        value_loss.backward()
+        self.VF_optimizer.step()
+    # Training Policy Function
+        policy_loss = (log_prob - predicted_new_q_value).mean()
+
+        self.actor_optimizer.zero_grad()
+        policy_loss.backward()
+        self.actor_optimizer.step()
+
+        for target_param, param in zip(self.target_VF.parameters(), self.VF.parameters()):
+            target_param.data.copy_(
+                target_param.data * (1.0 - self.tau) + param.data * self.tau
+            )
+
     def create_greedy_policy(self):
         def policy_fn(state):
             return self.actor.get_action(state).detach().cpu().numpy()
@@ -150,68 +220,22 @@ class SAC(AbstractSolver):
             done = False
 
             while not done:
-                action = self.policy(state)
-                next_state, reward, done, _ = self.env.step(action)
-                if len(self.replay_buffer) == self.options['replay_memory_size']:
-                    self.replay_buffer.popleft()
-                self.replay_buffer.append([state, action, reward, next_state, done])
-                if len(self.replay_buffer) < self.options['batch_size']:
-                    state = next_state
-                    t += 1
-                    continue
-                # sample the batch_index
-                batch_index = np.random.choice(len(self.replay_buffer), self.options['batch_size'], replace=False)
-                states = np.zeros((self.options['batch_size'], self.state_size[0]))
-                actions = np.zeros((self.options['batch_size'], ))
-                rewards = np.zeros((self.options['batch_size'], ))
-                next_states = np.zeros((self.options['batch_size'], self.state_size[0]))
-                not_dones = np.zeros((self.options['batch_size'], ))
-                for i, idx in enumerate(batch_index):
-                    s, a, r, n, d = self.replay_buffer[idx]
-                    states[i] = s
-                    actions[i] = a
-                    rewards[i] = r
-                    next_states[i] = n
-                    not_dones[i] = 1 - 1 * d
 
-                states = torch.FloatTensor(states)
-                next_states = torch.FloatTensor(next_states)
-                actions = torch.FloatTensor(actions).unsqueeze(1)
-                rewards = torch.FloatTensor(rewards).unsqueeze(1)
-                not_dones = torch.FloatTensor(np.float32(not_dones)).unsqueeze(1)
+                if t > 1000:
+                    action = self.actor.get_action(state).detach()
+                    next_state, reward, done, _ = self.env.step(action.numpy())
+                else:
+                    action = self.env.action_space.sample()
+                    next_state, reward, done, _ = self.env.step(action[0])
 
-                # Value function update
-                new_action, log_prob, epsilon, mean, log_std = self.actor.evaluate(states)
-                Q_value = torch.min(self.QF1(states, new_action), self.QF2(states, new_action))
-                y = Q_value - self.alpha * log_prob
-                value_loss = nn.MSELoss()(self.VF(states), y.detach())
+                self.replay_buffer.push(state, action, reward, next_state, done)
 
-                self.VF_optimizer.zero_grad()
-                value_loss.backward()
-                self.VF_optimizer.step()
-                # Q functions update
-                target_value_next = self.target_VF(next_states)
-                z = rewards + self.options['gamma'] * not_dones * target_value_next
-
-                QF1_loss = nn.MSELoss()(self.QF1(states, actions), z.detach())
-                QF2_loss = nn.MSELoss()(self.QF2(states, actions), z.detach())
-
-                self.QF1_optimizer.zero_grad()
-                QF1_loss.backward()
-                self.QF1_optimizer.step()
-                self.QF2_optimizer.zero_grad()
-                QF2_loss.backward()
-                self.QF2_optimizer.step()
-
-                # actor update
-                actor_loss = (self.alpha * log_prob - Q_value.detach()).mean()
-                self.actor_optimizer.zero_grad()
-                actor_loss.backward()
-                self.actor_optimizer.step()
-
-                accum_rewards += reward
                 state = next_state
+                accum_rewards += reward
                 t += 1
+
+                if len(self.replay_buffer) > self.options['batch_size']:
+                    self.update(self.options['batch_size'])
 
             print(accum_rewards, t)
 
