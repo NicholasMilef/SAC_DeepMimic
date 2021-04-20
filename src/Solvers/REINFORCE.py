@@ -1,69 +1,69 @@
 import os
 import pdb
-import keras
 import math
 import numpy as np
-from keras import backend as K
-from keras.layers import Input, Dense, Softmax
-from keras.optimizers import Adam
-from keras.models import Model
 from Solvers.AbstractSolver import AbstractSolver
-from tensorflow.python.framework.ops import disable_eager_execution
+import datetime
+import torch
+from torch import nn
+import torch.nn.functional as F
+from torch.distributions.normal import Normal
 
-disable_eager_execution()
+def LossREINFORCE(output, labels, G):
+	loss = 0
+	x = torch.clip(output, 1e-3, 1)
+	mu = x[:,:,0]
+	sigma = x[:,:,1]
 
-def pg_loss(rewards):
-	def loss(labels, predicted_output):
-		l = 0
-		G = rewards
-		x = K.reshape(predicted_output, (K.shape(predicted_output)[0], K.shape(predicted_output)[1]//2, 2))
-		x = K.clip(x, 1e-3, 1)
-		mu = x[:,:,0]
-		sigma = x[:,:,1]
-
-		l = K.clip((1.0 / (K.pow(sigma,2)*math.sqrt(2*math.pi))) * K.exp(-0.5 * K.pow((labels - mu) / K.pow(sigma,2), 2)), 1e-3, 1)
-		l = -K.mean(G*K.log(l))
-		return l
-
+	loss = torch.clip((1.0 / (torch.pow(sigma,2)*math.sqrt(2*math.pi))) * torch.exp(-0.5 * torch.pow((labels - mu) / torch.pow(sigma,2), 2)), 1e-3, 1)
+	loss = -torch.mean(G*torch.log(loss))
 	return loss
 
-keras.losses.pg_loss = pg_loss
+# REINFORCE policy using neural network
+class PolicyREINFORCE(nn.Module):
+	def __init__(self, state_size, action_size):
+		super(PolicyREINFORCE, self).__init__()
+		self.fc0 = nn.Linear(state_size[0], 1024)
+		self.fc1 = nn.Linear(1024, 512)
+		self.fc2 = nn.Linear(512, action_size*2)
 
+	def forward(self, x):
+		x = F.relu(self.fc0(x))
+		x = F.relu(self.fc1(x))
+		x = self.fc2(x)
+		x = F.relu(torch.reshape(x, (x.shape[0], x.shape[1]//2, 2)))
+		#x[:,:,1] = F.relu(x[:,:,1]) # sigma can't be negative
+		return x
+
+# REINFORCE training class
 class REINFORCE(AbstractSolver):
 	def __init__(self, env, options):
 		super().__init__(env, options)
 		self.state_size = (self.env.observation_space.shape[0],)
 		self.action_size = len(self.env.action_space.sample())
-		self.model = self.build_model()
+
+		# create model
+		self.model = PolicyREINFORCE(self.state_size, self.action_size)
+		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=options['lr'])
+
 		self.policy = self.create_greedy_policy()
 		self.trajectory = []
 
 	# START CODE ADAPTED FROM HW ASSIGNMENT
 	def create_greedy_policy(self):
 		def policy_fn(state):
-			return self.model.predict([[state], np.zeros((1,1))])[0]
+			output = None
+			with torch.no_grad():
+				data = torch.from_numpy(state.reshape(1, state.shape[0])).float()
+				output = self.model(data)
+			return output
 		return policy_fn
-	
-	def build_model(self):
-		rewards = Input(shape=(1,))
-		states = Input(shape=(self.state_size))
-		d = states
-		d = Dense(1024, activation='relu')(d)
-		d = Dense(512, activation='relu')(d)
-		do = Dense(self.action_size*2)(d) # outputting both mu and sigma for Gaussian
-		out = Softmax()(do)
-
-		opt = Adam(lr=self.options['lr'])
-		model = Model(inputs=[states, rewards], outputs=out)
-		model.compile(optimizer=opt, loss=pg_loss(rewards))
-		return model
-
 	# END CODE ADAPTED FROM HW ASSIGNMENT
 
 	def chooseAction(self, p):
-		x = np.reshape(p, (p.shape[0]//2, 2))
-		mu = x[:,0]
-		sigma = x[:,1]
+		p = p.numpy()
+		mu = p[:,:,0]
+		sigma = p[:,:,1]
 
 		a = np.random.normal(mu, sigma).flatten()
 		return a
@@ -73,9 +73,11 @@ class REINFORCE(AbstractSolver):
 		a = self.env.action_space.low + (a_range * a)
 		return a
 
-	def train_episode(self):
+	def train_episode(self, iteration):
 		# initialize episode
 		s = self.env.reset()
+
+		self.model.zero_grad()
 
 		# generate episode
 		done = False
@@ -100,5 +102,23 @@ class REINFORCE(AbstractSolver):
 			states[i] = s
 			labels[i] = a
 
-		self.model.fit([states, Gs], labels, batch_size=len(self.trajectory), epochs=1)
+		output = self.model(torch.from_numpy(states).float())
+		labels = torch.from_numpy(labels).detach().float()
+		G = torch.tensor(G, requires_grad=False)
+
+		# convert to tensors
+		loss = LossREINFORCE(output, labels, G)
+		loss.backward()
+
+		history = {
+			'loss': float(loss),
+			'episode_length': len(self.trajectory),
+			'return': float(G)
+		}
+
+		self.plot_info(history, iteration, 10)
+
 		self.trajectory.clear()
+
+	def print_name(self):
+		return 'REINFORCE'

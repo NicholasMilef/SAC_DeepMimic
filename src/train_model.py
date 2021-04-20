@@ -31,7 +31,7 @@ def main():
 
     for i in range(num_iterations):
         env.render(mode="human")
-        solver.train_episode()
+        solver.train_episode(i)
 
     env.close()
     print("Finished training")

@@ -4,7 +4,7 @@ class SAC(AbstractSolver):
 	def __init__(self, env, options):
 		super.__init__(env, options)
 
-	def train_episode(self):
+	def train_episode(self, iteration):
 		s = env.reset()
 
 		done = False
