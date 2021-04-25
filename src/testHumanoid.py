@@ -20,7 +20,7 @@ planeId = pybullet_client.loadURDF("plane_implicit.urdf", [0, 0, 0],
                                    z2y,
                                    useMaximalCoordinates=True)
 pybullet_client.changeDynamics(planeId, linkIndex=-1, lateralFriction=0.9)
-#print("planeId=",planeId)
+# print("planeId=",planeId)
 
 pybullet_client.configureDebugVisualizer(pybullet_client.COV_ENABLE_Y_AXIS_UP, 1)
 pybullet_client.setGravity(0, -9.8, 0)
@@ -28,7 +28,7 @@ pybullet_client.setGravity(0, -9.8, 0)
 pybullet_client.setPhysicsEngineParameter(numSolverIterations=10)
 
 mocapData = motion_capture_data.MotionCaptureData()
-motionPath = pybullet_data.getDataPath()+"/data/motions/humanoid3d_walk.txt"
+motionPath = pybullet_data.getDataPath() + "/data/motions/humanoid3d_walk.txt"
 #motionPath = pybullet_data.getDataPath() + "/data/motions/humanoid3d_backflip.txt"
 mocapData.Load(motionPath)
 timeStep = 1. / 600
@@ -51,6 +51,7 @@ def isKeyTriggered(keys, key):
 # START OUR CODE: adding our policy
 import pdb
 from Policies.REINFORCEPolicy import REINFORCEPolicy
+from Policies.SACPolicy import SACPolicy
 import gym
 import argparse
 
@@ -60,7 +61,15 @@ parser.add_argument('-N', '--name', help='name of model')
 args = parser.parse_args()
 
 env = gym.make("HumanoidDeepMimicWalkBulletEnv-v1")
-policy = REINFORCEPolicy(env)
+
+if args.method == 'sac':
+  policy = SACPolicy(env)
+elif args.method == 'r':
+  policy = REINFORCEPolicy(env)
+else:
+  print('Unsupported Method')
+  exit()
+
 policy.loadPolicy(args.name)
 # END OUR CODE
 
@@ -71,7 +80,7 @@ t = 0
 while (1):
 
   keys = pybullet_client.getKeyboardEvents()
-  #print(keys)
+  # print(keys)
   if isKeyTriggered(keys, ' '):
     animating = not animating
 
@@ -85,7 +94,7 @@ while (1):
 
     singleStep = False
     #t = pybullet_client.readUserDebugParameter(timeId)
-    #print("t=",t)
+    # print("t=",t)
     for i in range(1):
 
       #print("t=", t)
@@ -94,14 +103,14 @@ while (1):
       humanoid.computePose(humanoid._frameFraction)
       pose = humanoid._poseInterpolator
       #humanoid.initializePose(pose=pose, phys_model = humanoid._sim_model, initBase=True, initializeVelocity=True)
-      #humanoid.resetPose()
+      # humanoid.resetPose()
 
       desiredPose = humanoid.computePose(humanoid._frameFraction)
-      
+
       #desiredPose = desiredPose.GetPose()
       #curPose = HumanoidPoseInterpolator()
-      #curPose.reset()
-      
+      # curPose.reset()
+
       s = humanoid.getState()
       #np.savetxt("pb_record_state_s.csv", s, delimiter=",")
       maxForces = [
@@ -109,15 +118,15 @@ while (1):
           90, 90, 100, 100, 100, 100, 60, 200, 200, 200, 200, 150, 90, 90, 90, 90, 100, 100, 100,
           100, 60
       ]
-      
+
       usePythonStablePD = True
       if usePythonStablePD:
         #taus = humanoid.computePDForces(desiredPose, desiredVelocities=None, maxForces=maxForces)
         taus = policy.run(s)
-        #Print("taus=",taus)
+        # Print("taus=",taus)
         humanoid.convertActionToPose(taus)
       else:
-        humanoid.computeAndApplyPDForces(desiredPose,maxForces=maxForces)
+        humanoid.computeAndApplyPDForces(desiredPose, maxForces=maxForces)
 
       pybullet_client.stepSimulation()
       t += 1. / 600.
