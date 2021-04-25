@@ -11,6 +11,7 @@ import pybullet as p1
 import Viewer.humanoid_pose_interpolator as humanoid_pose_interpolator
 import numpy as np
 
+
 pybullet_client = bullet_client.BulletClient(connection_mode=p1.GUI)
 
 pybullet_client.setAdditionalSearchPath(pybullet_data.getDataPath())
@@ -52,6 +53,7 @@ def isKeyTriggered(keys, key):
 import pdb
 from Policies.REINFORCEPolicy import REINFORCEPolicy
 from Policies.SACPolicy import SACPolicy
+from Solvers.SAC import NormalizedActions
 import gym
 import argparse
 
@@ -60,11 +62,13 @@ parser.add_argument('-m', '--method', help='RL algorithm')
 parser.add_argument('-N', '--name', help='name of model')
 args = parser.parse_args()
 
-env = gym.make("HumanoidDeepMimicWalkBulletEnv-v1")
+env = NormalizedActions(gym.make("HumanoidDeepMimicWalkBulletEnv-v1"))
 
 if args.method == 'sac':
+  env = NormalizedActions(gym.make("HumanoidDeepMimicWalkBulletEnv-v1"))
   policy = SACPolicy(env)
 elif args.method == 'r':
+  env = gym.make("HumanoidDeepMimicWalkBulletEnv-v1")
   policy = REINFORCEPolicy(env)
 else:
   print('Unsupported Method')
