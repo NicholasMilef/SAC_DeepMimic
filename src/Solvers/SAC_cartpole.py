@@ -212,8 +212,13 @@ class SAC(AbstractSolver):
             t += 1
         ################################
 
+        history = {
+            'loss': float(loss),
+            'episode_length': len(self.trajectory),
+            'return': float(G)
+        }
+
+        self.plot_info(history, iteration, 10)
+
     def __str__(self):
         return "SAC"
-
-    def plot(self, stats):
-        plotting.plot_episode_stats(stats)

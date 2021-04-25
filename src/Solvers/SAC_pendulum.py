@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
 from Solvers.AbstractSolver import AbstractSolver
+import pdb
 
 
 class ValueFunction(nn.Module):
@@ -214,7 +215,8 @@ class SAC(AbstractSolver):
 
     def train_episode(self, iteration):
         t = 1
-        while t < 40000:
+        G = 0
+        while t < 1000:
             state = self.env.reset()
             accum_rewards = 0
             done = False
@@ -236,8 +238,17 @@ class SAC(AbstractSolver):
 
                 if len(self.replay_buffer) > self.options['batch_size']:
                     self.update(self.options['batch_size'])
+                G += accum_rewards
 
             print(accum_rewards, t)
+
+        history = {
+            'loss': float(0),
+            'episode_length': t,
+            'return': float(G)
+        }
+
+        self.plot_info(history, iteration, 1)
 
     def print_name(self):
         return 'SAC'

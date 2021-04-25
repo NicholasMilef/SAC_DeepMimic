@@ -20,9 +20,9 @@ def LossREINFORCE(output, labels, G):
 	return loss
 
 # REINFORCE policy using neural network
-class PolicyREINFORCE(nn.Module):
+class ModelREINFORCE(nn.Module):
 	def __init__(self, state_size, action_size):
-		super(PolicyREINFORCE, self).__init__()
+		super(ModelREINFORCE, self).__init__()
 		self.fc0 = nn.Linear(state_size[0], 1024)
 		self.fc1 = nn.Linear(1024, 512)
 		self.fc2 = nn.Linear(512, action_size*2)
@@ -43,7 +43,7 @@ class REINFORCE(AbstractSolver):
 		self.action_size = len(self.env.action_space.sample())
 
 		# create model
-		self.model = PolicyREINFORCE(self.state_size, self.action_size)
+		self.model = ModelREINFORCE(self.state_size, self.action_size)
 		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=options['lr'])
 
 		self.policy = self.create_greedy_policy()
@@ -60,7 +60,8 @@ class REINFORCE(AbstractSolver):
 		return policy_fn
 	# END CODE ADAPTED FROM HW ASSIGNMENT
 
-	def chooseAction(self, p):
+	@staticmethod
+	def chooseAction(p):
 		p = p.numpy()
 		mu = p[:,:,0]
 		sigma = p[:,:,1]
@@ -68,9 +69,10 @@ class REINFORCE(AbstractSolver):
 		a = np.random.normal(mu, sigma).flatten()
 		return a
 
-	def scaleAction(self, a):
-		a_range = self.env.action_space.high - self.env.action_space.low
-		a = self.env.action_space.low + (a_range * a)
+	@staticmethod
+	def scaleAction(a, env):
+		a_range = env.action_space.high - env.action_space.low
+		a = env.action_space.low + (a_range * a)
 		return a
 
 	def train_episode(self, iteration):
@@ -83,8 +85,8 @@ class REINFORCE(AbstractSolver):
 		done = False
 		while not done:
 			a_prob = self.policy(s)
-			a = self.chooseAction(a_prob)
-			s_p, r, done, _ = self.env.step(self.scaleAction(a))
+			a = REINFORCE.chooseAction(a_prob)
+			s_p, r, done, _ = self.env.step(REINFORCE.scaleAction(a, self.env))
 			self.trajectory.append((s, s_p, a, r))
 			s = s_p
 		
@@ -117,6 +119,7 @@ class REINFORCE(AbstractSolver):
 		}
 
 		self.plot_info(history, iteration, 10)
+		torch.save(self.model.state_dict(), 'REINFORCE.pth')
 
 		self.trajectory.clear()
 
