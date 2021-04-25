@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
 from Solvers.AbstractSolver import AbstractSolver
+import pybullet_envs
 
 
 class ValueFunction(nn.Module):
@@ -131,7 +132,8 @@ class SAC(AbstractSolver):
     def __init__(self, env, options):
         super().__init__(env, options)
 
-        #self.env = NormalizedActions(gym.make("Pendulum-v0"))
+        #self.env = NormalizedActions(gym.make("HumanoidBulletEnv-v0"))
+        self.env = NormalizedActions(env)
         self.state_size = (self.env.observation_space.shape[0],)
         self.action_size = len(self.env.action_space.sample())
         self.replay_buffer = ReplayBuffer(self.options['replay_memory_size'])
@@ -214,14 +216,16 @@ class SAC(AbstractSolver):
 
     def train_episode(self, iteration):
         t = 1
-        while t < 40000:
+        epi = 1
+        while t < 4000000:
             state = self.env.reset()
             accum_rewards = 0
             done = False
             st = 1
+
             while not done:
 
-                if t > 1000:
+                if t > 5000:
                     action = self.actor.get_action(state).detach()
                     next_state, reward, done, _ = self.env.step(action.numpy())
                 else:
@@ -236,8 +240,10 @@ class SAC(AbstractSolver):
                 st += 1
                 if len(self.replay_buffer) > self.options['batch_size']:
                     self.update(self.options['batch_size'])
-
-            print(accum_rewards, st, t)
+            epi += 1
+            if epi % 3 == 0:
+                torch.save(self.actor.state_dict(), 'SAC_epi_{}.pt'.format(epi))
+            print(epi, accum_rewards, st, t)
 
     def print_name(self):
         return 'SAC'
@@ -260,4 +266,4 @@ class NormalizedActions(gym.ActionWrapper):
         action = 2 * (action - low) / (high - low) - 1
         action = np.clip(action, low, high)
 
-        return actions
+        return action
