@@ -4,7 +4,7 @@ import argparse
 
 import gym
 from Solvers.AbstractSolver import AbstractSolver
-from Solvers.SAC_pendulum import SAC
+from Solvers.SAC import SAC
 from Solvers.REINFORCE import REINFORCE
 from pybullet_envs.deep_mimic.gym_env import HumanoidDeepMimicWalkBulletEnv
 
