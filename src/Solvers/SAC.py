@@ -241,7 +241,7 @@ class SAC(AbstractSolver):
                 if len(self.replay_buffer) > self.options['batch_size']:
                     self.update(self.options['batch_size'])
             epi += 1
-            if epi % 3 == 0:
+            if epi % 500 == 0:
                 torch.save(self.actor.state_dict(), 'SAC_epi_{}.pt'.format(epi))
             print(epi, accum_rewards, st, t)
 
