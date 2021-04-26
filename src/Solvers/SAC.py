@@ -158,8 +158,8 @@ class SAC(AbstractSolver):
         super().__init__(env, options)
 
         #self.env = NormalizedActions(gym.make("Pendulum-v0"))
-        self.env = NormalizedActions(gym.make("HumanoidBulletEnv-v0"))
-        #self.env = NormalizedActions(env)
+        #self.env = NormalizedActions(gym.make("HumanoidBulletEnv-v0"))
+        self.env = NormalizedActions(env)
         self.state_size = (self.env.observation_space.shape[0],)
         self.action_size = len(self.env.action_space.sample())
         self.replay_buffer = ReplayBuffer(self.options['replay_memory_size'])
