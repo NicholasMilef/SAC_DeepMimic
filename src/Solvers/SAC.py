@@ -7,7 +7,7 @@ import torch
 from torch import nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.distributions import Normal
+from torch.distributions import Normal, MultivariateNormal
 from Solvers.AbstractSolver import AbstractSolver
 import pybullet_envs
 
@@ -80,15 +80,32 @@ class PolicySAC(nn.Module):
     def evaluate(self, state, epsilon=1e-6):
         mean, log_std = self.forward(state)
         std = log_std.exp()
-        # loc = torch.zeros(len(mean))
-        # scale = torch.ones(len(mean))
-        # mvn = MultivariateNormal(loc, scale_tril=torch.diag(scale))
-        # z = mvn.sample()
-        normal = Normal(0, 1)
-        z = normal.sample()
+        loc = torch.zeros(mean.size())
+        scale = torch.ones(mean.size())
+        if mean.size()[1] == 1:
+            normal = Normal(loc, scale)
+            z = normal.sample()
+
+        else:
+            scale = torch.diag_embed(scale)
+            mvn = MultivariateNormal(loc, scale)
+            z = mvn.sample()
+
         action = torch.tanh(mean + std * z)
-        log_prob = Normal(mean, std).log_prob(mean + std * z) - torch.log(1 - action.pow(2) + epsilon)
-        log_prob = log_prob.sum(1, keepdim=True)
+        squashing = torch.log(1 - action.pow(2) + epsilon).sum(1)
+        if mean.size()[1] == 1:
+            log_prob = torch.reshape(Normal(mean, std).log_prob(mean + std * z), (-1,)) - squashing
+
+        else:
+            scale_std = torch.diag_embed(std)
+            log_prob = MultivariateNormal(mean, scale_std).log_prob(mean + std * z) - squashing
+
+        log_prob = torch.reshape(log_prob, (-1, 1))
+
+        #log_prob = log_prob.sum(1, keepdim=True)
+        # print(torch.diag(std).size())
+        #log_prob = MultivariateNormal(mean, torch.diag(std)).log_prob(mean + std * z) - torch.log(1 - action.pow(2) + epsilon)
+        #log_prob = log_prob.sum(1, keepdim=True)
         # log_prob = MultivariateNormal(mean, std).log_prob(mean+ std*z.to(device)) - torch.log(1 - action.pow(2) + epsilon)
         return action, log_prob, z, mean, log_std
 
@@ -99,8 +116,16 @@ class PolicySAC(nn.Module):
 
         # mvn = MultivariateNormal(loc, scale_tril=torch.diag(scale))
         # z = mvn.sample()
-        normal = Normal(0, 1)
-        z = normal.sample()
+        loc = torch.zeros(mean.size())
+        scale = torch.ones(mean.size())
+        if mean.size()[1] == 1:
+            normal = Normal(loc, scale)
+            z = normal.sample()
+        else:
+            scale = torch.diag_embed(scale)
+            mvn = MultivariateNormal(loc, scale)
+            z = mvn.sample()
+
         action = torch.tanh(mean + std * z)
 
         action = action.cpu()  # .detach().cpu().numpy()
@@ -132,8 +157,9 @@ class SAC(AbstractSolver):
     def __init__(self, env, options):
         super().__init__(env, options)
 
-        #self.env = NormalizedActions(gym.make("HumanoidBulletEnv-v0"))
-        self.env = NormalizedActions(env)
+        #self.env = NormalizedActions(gym.make("Pendulum-v0"))
+        self.env = NormalizedActions(gym.make("HumanoidBulletEnv-v0"))
+        #self.env = NormalizedActions(env)
         self.state_size = (self.env.observation_space.shape[0],)
         self.action_size = len(self.env.action_space.sample())
         self.replay_buffer = ReplayBuffer(self.options['replay_memory_size'])
