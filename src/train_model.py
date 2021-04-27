@@ -5,6 +5,7 @@ import argparse
 import gym
 from Solvers.AbstractSolver import AbstractSolver
 from Solvers.SAC import SAC
+from Solvers.PPO import PPO
 from Solvers.REINFORCE import REINFORCE
 from pybullet_envs.deep_mimic.gym_env import HumanoidDeepMimicWalkBulletEnv
 
@@ -28,6 +29,8 @@ def main():
         solver = SAC(env, options)
     elif args.method == 'r':
         solver = REINFORCE(env, options)
+    elif args.method == 'ppo':
+        solver = PPO(env, options)
     else:
         print('Unsupported Method')
         exit()
