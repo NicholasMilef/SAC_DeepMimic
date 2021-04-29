@@ -17,6 +17,7 @@ def main():
 
     num_iterations = 100000
     env = gym.make("HumanoidDeepMimicWalkBulletEnv-v1")
+    #env = gym.make("HumanoidBulletEnv-v0")
 
     options = {
         'lr': 0.001,
@@ -35,8 +36,9 @@ def main():
         print('Unsupported Method')
         exit()
 
+    env.render(mode="human")
     for i in range(num_iterations):
-        env.render(mode="human")
+
         solver.train_episode(i)
 
     env.close()

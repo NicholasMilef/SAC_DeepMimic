@@ -241,35 +241,40 @@ class SAC(AbstractSolver):
         return policy_fn
 
     def train_episode(self, iteration):
-        t = 1
-        epi = 1
-        while t < 4000000:
-            state = self.env.reset()
-            accum_rewards = 0
-            done = False
-            st = 1
+        state = self.env.reset()
+        accum_rewards = 0
+        done = False
+        st = 1
 
-            while not done:
+        while not done:
+            if len(self.replay_buffer) > 5000:
+                action = self.actor.get_action(state).detach()
+                next_state, reward, done, _ = self.env.step(action.numpy())
+            else:
+                action = self.env.action_space.sample()
+                next_state, reward, done, _ = self.env.step(action[0])
 
-                if t > 5000:
-                    action = self.actor.get_action(state).detach()
-                    next_state, reward, done, _ = self.env.step(action.numpy())
-                else:
-                    action = self.env.action_space.sample()
-                    next_state, reward, done, _ = self.env.step(action[0])
+            self.replay_buffer.push(state, action, reward, next_state, done)
 
-                self.replay_buffer.push(state, action, reward, next_state, done)
+            state = next_state
+            accum_rewards += reward
+            st += 1
 
-                state = next_state
-                accum_rewards += reward
-                t += 1
-                st += 1
-                if len(self.replay_buffer) > self.options['batch_size']:
-                    self.update(self.options['batch_size'])
-            epi += 1
-            if epi % 500 == 0:
-                torch.save(self.actor.state_dict(), 'SAC_epi_{}.pt'.format(epi))
-            print(epi, accum_rewards, st, t)
+            if len(self.replay_buffer) > self.options['batch_size']:
+                self.update(self.options['batch_size'], self.options['gamma'])
+
+        # record data
+        history = {
+            'loss': 0,#float(loss),
+            'episode_length': st,
+            'return': float(accum_rewards)
+        }
+
+        self.plot_info(history, iteration, 10)
+
+        if iteration % 5000 == 0:
+            torch.save(self.actor.state_dict(), 'SAC_epi_{}.pt'.format(iteration))
+        print(iteration, accum_rewards, st)
 
     def print_name(self):
         return 'SAC'

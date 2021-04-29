@@ -1,0 +1,7 @@
+*__pycache__*
+runs/
+data/
+*.pt
+*.pth
+.vscode/
+src/renderer.py
