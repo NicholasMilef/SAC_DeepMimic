@@ -13,17 +13,21 @@ from pybullet_envs.deep_mimic.gym_env import HumanoidDeepMimicWalkBulletEnv
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--method', help="RL method to use")
+    parser.add_argument('-r', '--replay', help="replay buffer prioritization scheme", default='uniform')
+    parser.add_argument('-w', '--warmup', help="replay buffer prioritization scheme", type=int, default=5000)
     args = parser.parse_args()
 
     num_iterations = 100000
-    env = gym.make("HumanoidDeepMimicWalkBulletEnv-v1")
-    #env = gym.make("HumanoidBulletEnv-v0")
+    #env = gym.make("HumanoidDeepMimicWalkBulletEnv-v1")
+    env = gym.make("HumanoidBulletEnv-v0")
 
     options = {
         'lr': 0.001,
         'gamma': 0.95,
         'replay_memory_size': 1000000,
-        'batch_size': 128
+        'batch_size': 128,
+        'replay': args.replay,
+        'warmup': args.warmup
     }
 
     if args.method == 'sac':

@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from torch.distributions import Normal, MultivariateNormal
 from Solvers.AbstractSolver import AbstractSolver
 import pybullet_envs
+import queue
+import pdb
 
 
 class ValueFunction(nn.Module):
@@ -139,6 +141,7 @@ class ReplayBuffer:
         self.position = 0
 
     def push(self, state, action, reward, next_state, done):
+        value = 0
         if len(self.buffer) < self.capacity:
             self.buffer.append(None)
         self.buffer[self.position] = (state, action, reward, next_state, done)
@@ -147,22 +150,93 @@ class ReplayBuffer:
     def sample(self, batch_size):
         batch = random.sample(self.buffer, batch_size)
         state, action, reward, next_state, done = map(np.stack, zip(*batch))
-        return state, action, reward, next_state, done
+        return state, action, reward, next_state, done, np.full_like(done, 1), np.full_like(done, -1)
 
     def __len__(self):
         return len(self.buffer)
 
+class PER(ReplayBuffer):
+    def __init__(self, capacity, state_size, action_size):
+        super(PER, self).__init__(capacity)
+        self.epsilon = 0.001
+        self.buffer = []
+        self.state_size = state_size
+
+        self.alpha = 1.0
+        self.beta = 0.0
+
+        self.sum = 0
+        for i in range(capacity):
+            self.sum += (1.0 / float(i+1))**self.alpha
+
+    def push(self, state, actions, reward, next_state, done):
+        value = 0
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        if len(self.buffer) == self.capacity:
+            self.buffer.pop()
+        self.buffer[-1] = (value, (state, action, reward, next_state, done))
+        #self.position = (self.position + 1) % self.capacity
+        self.buffer.sort(key=lambda t: t[0])
+
+    def sample(self, batch_size):
+        state = np.zeros((batch_size, state_size))
+        action = np.zeros((batch_size, action_size))
+        reward = np.zeros((batch_size))
+        next_state = np.zeros((batch_size, state_size))
+        done = np.zeros((batch_size))
+        weight = np.zeros((batch_size))
+        indices = np.zeros((batch_size))
+
+        for i in range(batch_size):
+            s, a, r, n_s, d, w, index = self.sample_one()
+            state[i] = s
+            action[i] = a
+            reward[i] = r
+            next_state[i] = n_s
+            done[i] = d
+            weight[i] = w
+            indices[i] = index
+
+        return state, action, reward, next_state, done, weight, indices
+
+    def prob(self, i):
+        return ((1.0 / float(i+1)) / self.sum)**self.alpha
+
+    def sample_one(self):
+        number = random.rand(0, 1)
+        i = 0
+        cI = 0
+
+        while i < len(self.buffer):
+            if number <= self.prob(i):
+                cI = 0
+                break
+            i += 1
+
+        state, action, reward, next_state, done = self.buffer[cI]
+        weight = ((1.0 / len(self.buffer)) * (1.0 / self.prob(cI)))**self.beta
+        max_weight = 1.0 / len(self.buffer)
+        return state, action, reward, next_state, done, weight / max_weight, cI
+
+    def __len__(self):
+        return len(self.buffer)
 
 class SAC(AbstractSolver):
     def __init__(self, env, options):
-        super().__init__(env, options)
+        super(SAC, self).__init__(env, options)
 
         #self.env = NormalizedActions(gym.make("Pendulum-v0"))
         #self.env = NormalizedActions(gym.make("HumanoidBulletEnv-v0"))
         self.env = NormalizedActions(env)
         self.state_size = (self.env.observation_space.shape[0],)
         self.action_size = len(self.env.action_space.sample())
-        self.replay_buffer = ReplayBuffer(self.options['replay_memory_size'])
+
+        if options['replay'] == 'uniform':
+            self.replay_buffer = ReplayBuffer(self.options['replay_memory_size'])
+        elif options['replay'] == 'per':
+            self.replay_buffer = PER(self.options['replay_memory_size'], self.state_size, self.action_size)
+
         # To escape from the maximum bias, we need two independent Q functions.
         self.QF1 = SoftQFunction(self.state_size, self.action_size)
         self.QF2 = SoftQFunction(self.state_size, self.action_size)
@@ -190,24 +264,33 @@ class SAC(AbstractSolver):
 
     def update(self, batch_size, gamma=0.99):
 
-        state, action, reward, next_state, done = self.replay_buffer.sample(batch_size)
+        state, action, reward, next_state, done, weight, index = self.replay_buffer.sample(batch_size)
 
         state = torch.FloatTensor(state)
         next_state = torch.FloatTensor(next_state)
         action = torch.FloatTensor(action)
         reward = torch.FloatTensor(reward).unsqueeze(1)
         done = torch.FloatTensor(np.float32(done)).unsqueeze(1)
+        weight = torch.FloatTensor(np.float32(weight)).unsqueeze(1)
+
+        # Update priority with TD error
+        if self.options['replay'] == 'per':
+            with torch.no_grad():
+                self.VF.eval()
+                td_error = reward + gamma * self.VF(new_state) - self.VF(state)
+                self.replay_buffer.update(index, td_error)
+                self.VF.train()
 
         predicted_q_value1 = self.QF1(state, action)
         predicted_q_value2 = self.QF2(state, action)
         predicted_value = self.VF(state)
         new_action, log_prob, epsilon, mean, log_std = self.actor.evaluate(state)
 
-    # Training Q Function
+        # Training Q Function
         target_value = self.target_VF(next_state)
         target_q_value = reward + (1 - done) * gamma * target_value
-        q_value_loss1 = nn.MSELoss()(predicted_q_value1, target_q_value.detach())
-        q_value_loss2 = nn.MSELoss()(predicted_q_value2, target_q_value.detach())
+        q_value_loss1 = nn.MSELoss()(predicted_q_value1*weight, target_q_value.detach()*weight)
+        q_value_loss2 = nn.MSELoss()(predicted_q_value2*weight, target_q_value.detach()*weight)
 
         self.QF1_optimizer.zero_grad()
         q_value_loss1.backward()
@@ -215,16 +298,18 @@ class SAC(AbstractSolver):
         self.QF2_optimizer.zero_grad()
         q_value_loss2.backward()
         self.QF2_optimizer.step()
-    # Training Value Function
+
+        # Training Value Function
         predicted_new_q_value = torch.min(self.QF1(state, new_action), self.QF2(state, new_action))
         target_value_func = predicted_new_q_value - log_prob
-        value_loss = nn.MSELoss()(predicted_value, target_value_func.detach())
+        value_loss = nn.MSELoss()(predicted_value*weight, target_value_func.detach()*weight)
 
         self.VF_optimizer.zero_grad()
         value_loss.backward()
         self.VF_optimizer.step()
-    # Training Policy Function
-        policy_loss = (log_prob - predicted_new_q_value).mean()
+
+        # Training Policy Function
+        policy_loss = ((log_prob - predicted_new_q_value)*weight).mean()
 
         self.actor_optimizer.zero_grad()
         policy_loss.backward()
@@ -247,7 +332,7 @@ class SAC(AbstractSolver):
         st = 1
 
         while not done:
-            if len(self.replay_buffer) > 5000:
+            if len(self.replay_buffer) > self.options['warmup']:
                 action = self.actor.get_action(state).detach()
                 next_state, reward, done, _ = self.env.step(action.numpy())
             else:
@@ -273,7 +358,10 @@ class SAC(AbstractSolver):
         self.plot_info(history, iteration, 10)
 
         if iteration % 5000 == 0:
-            torch.save(self.actor.state_dict(), 'SAC_epi_{}.pt'.format(iteration))
+            torch.save(self.actor.state_dict(),
+                'SAC_epi_' + str(iteration) +
+                '_' + self.options['replay'] +
+                '_t' + str(self.options['warmup']) + '.pth')
         print(iteration, accum_rewards, st)
 
     def print_name(self):
