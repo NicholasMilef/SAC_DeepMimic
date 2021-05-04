@@ -140,7 +140,7 @@ class ReplayBuffer:
         self.buffer = []
         self.position = 0
 
-    def push(self, state, action, reward, next_state, done):
+    def push(self, state, action, reward, next_state, done, value=0):
         value = 0
         if len(self.buffer) < self.capacity:
             self.buffer.append(None)
@@ -161,29 +161,43 @@ class PER(ReplayBuffer):
         self.epsilon = 0.001
         self.buffer = []
         self.state_size = state_size
+        self.action_size = action_size
+        self.age = 0
 
-        self.alpha = 1.0
+        self.alpha = 1.0#1.0
         self.beta = 0.0
 
         self.sum = 0
-        for i in range(capacity):
-            self.sum += (1.0 / float(i+1))**self.alpha
 
-    def push(self, state, actions, reward, next_state, done):
-        value = 0
+    def updateSum(self, value, oldValue):
+        self.sum = self.sum - oldValue + value
+
+    def push(self, state, actions, reward, next_state, done, value=0):
         if len(self.buffer) < self.capacity:
             self.buffer.append(None)
+        index = len(self.buffer)-1
+
+        oldValue = 0
         if len(self.buffer) == self.capacity:
-            self.buffer.pop()
-        self.buffer[-1] = (value, (state, action, reward, next_state, done))
-        #self.position = (self.position + 1) % self.capacity
-        self.buffer.sort(key=lambda t: t[0])
+            index == 0
+            for b in self.buffer:
+                if b[2] == self.position:                    
+                    oldValue, _, _ = self.buffer[index]
+                    break
+                index += 1
+
+        self.updateSum(oldValue, value)
+
+        self.buffer[index] = (value, (state, actions, reward, next_state, done), self.position)
+        self.position = (self.position + 1) % self.capacity
+        self.buffer.sort(key=lambda t: t[0], reverse=True)
+        return 
 
     def sample(self, batch_size):
-        state = np.zeros((batch_size, state_size))
-        action = np.zeros((batch_size, action_size))
+        state = np.zeros((batch_size, self.state_size[0]))
+        action = np.zeros((batch_size, self.action_size))
         reward = np.zeros((batch_size))
-        next_state = np.zeros((batch_size, state_size))
+        next_state = np.zeros((batch_size, self.state_size[0]))
         done = np.zeros((batch_size))
         weight = np.zeros((batch_size))
         indices = np.zeros((batch_size))
@@ -200,11 +214,14 @@ class PER(ReplayBuffer):
 
         return state, action, reward, next_state, done, weight, indices
 
+    def p(self, i):
+        return (1.0 / float(i+1))**self.alpha
+
     def prob(self, i):
-        return ((1.0 / float(i+1)) / self.sum)**self.alpha
+        return (self.p(i)**self.alpha) / self.sum
 
     def sample_one(self):
-        number = random.rand(0, 1)
+        number = random.uniform(0, 1)
         i = 0
         cI = 0
 
@@ -214,10 +231,17 @@ class PER(ReplayBuffer):
                 break
             i += 1
 
-        state, action, reward, next_state, done = self.buffer[cI]
+        value, (state, action, reward, next_state, done), index = self.buffer[cI]
         weight = ((1.0 / len(self.buffer)) * (1.0 / self.prob(cI)))**self.beta
         max_weight = 1.0 / len(self.buffer)
+        weight = 1.0
+        max_weight = 1.0
         return state, action, reward, next_state, done, weight / max_weight, cI
+
+    def update(self, indices, values):
+        for i in range(len(indices)):
+            value, data, index = self.buffer[int(indices[i])]
+            self.buffer[int(indices[i])] = (values[i], data, index)
 
     def __len__(self):
         return len(self.buffer)
@@ -262,6 +286,19 @@ class SAC(AbstractSolver):
         for target_param, param in zip(self.target_VF.parameters(), self.VF.parameters()):
             target_param.data.copy_(param.data)
 
+    def getTDError(self, state, reward, next_state, gamma):
+        state = torch.FloatTensor(state)
+        next_state = torch.FloatTensor(next_state)
+        reward = torch.FloatTensor(np.array([reward])).unsqueeze(1)
+
+        
+        with torch.no_grad():
+            self.VF.eval()
+            td_error = torch.abs(reward + gamma * self.VF(next_state) - self.VF(state))
+            self.VF.train()
+
+        return td_error
+
     def update(self, batch_size, gamma=0.99):
 
         state, action, reward, next_state, done, weight, index = self.replay_buffer.sample(batch_size)
@@ -275,9 +312,10 @@ class SAC(AbstractSolver):
 
         # Update priority with TD error
         if self.options['replay'] == 'per':
+
             with torch.no_grad():
                 self.VF.eval()
-                td_error = reward + gamma * self.VF(new_state) - self.VF(state)
+                td_error = torch.abs(reward + gamma * self.VF(next_state) - self.VF(state))
                 self.replay_buffer.update(index, td_error)
                 self.VF.train()
 
@@ -339,7 +377,10 @@ class SAC(AbstractSolver):
                 action = self.env.action_space.sample()
                 next_state, reward, done, _ = self.env.step(action[0])
 
-            self.replay_buffer.push(state, action, reward, next_state, done)
+            gamma = 0.99
+            #td_error = self.getTDError(state, reward, next_state, gamma)
+            td_error = 1000
+            self.replay_buffer.push(state, action, reward, next_state, done, td_error)
 
             state = next_state
             accum_rewards += reward

@@ -14,7 +14,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--method', help="RL method to use")
     parser.add_argument('-r', '--replay', help="replay buffer prioritization scheme", default='uniform')
-    parser.add_argument('-w', '--warmup', help="replay buffer prioritization scheme", type=int, default=5000)
+    parser.add_argument('-w', '--warmup', help="warm-up transitions", type=int, default=5000)
     args = parser.parse_args()
 
     num_iterations = 100000
