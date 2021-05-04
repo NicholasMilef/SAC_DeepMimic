@@ -21,9 +21,11 @@ We referred and modified our code based on the following repositories.
 1. Training model.
 
 ```
-python src/train_model.py -m ['r', 'sac', 'ppo']
+python src/train_model.py -m ['r', 'sac', 'ppo'] -r ['uniform', 'per']
 ```
-Here, 'r' is for REINFORCE, 'sac' is for SAC, and 'ppo' is for PPO.
+For model selection, 'r' is for REINFORCE, 'sac' is for SAC, and 'ppo' is for PPO.
+
+For replay buffer sampling selection, 'uniform' is uniform sampling, and 'per' is prioritized experience replay.
 
 2. Testing model.
 
