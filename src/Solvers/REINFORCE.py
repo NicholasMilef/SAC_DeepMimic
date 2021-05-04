@@ -9,6 +9,8 @@ from torch import nn
 import torch.nn.functional as F
 from torch.distributions.normal import Normal
 
+# We reimplemented REINFORCE from our class assignment in PyTorch
+# We modified it to work with continous actions
 def LossREINFORCE(output, labels, G):
 	loss = 0
 	x = torch.clip(output, 1e-3, 1)

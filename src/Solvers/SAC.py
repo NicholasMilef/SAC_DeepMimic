@@ -13,7 +13,8 @@ import pybullet_envs
 import queue
 import pdb
 
-
+# From https://github.com/higgsfield/RL-Adventure-2/blob/master/7.soft%20actor-critic.ipynb
+# We describe in the comments the places where we made modifications
 class ValueFunction(nn.Module):
     def __init__(self, state_size, init_w=3e-3):
         super(ValueFunction, self).__init__()
@@ -79,6 +80,7 @@ class PolicySAC(nn.Module):
 
         return mean, log_std
 
+    # We modified this function to support multivariate normal distributions
     def evaluate(self, state, epsilon=1e-6):
         mean, log_std = self.forward(state)
         std = log_std.exp()
@@ -104,20 +106,14 @@ class PolicySAC(nn.Module):
 
         log_prob = torch.reshape(log_prob, (-1, 1))
 
-        #log_prob = log_prob.sum(1, keepdim=True)
-        # print(torch.diag(std).size())
-        #log_prob = MultivariateNormal(mean, torch.diag(std)).log_prob(mean + std * z) - torch.log(1 - action.pow(2) + epsilon)
-        #log_prob = log_prob.sum(1, keepdim=True)
-        # log_prob = MultivariateNormal(mean, std).log_prob(mean+ std*z.to(device)) - torch.log(1 - action.pow(2) + epsilon)
         return action, log_prob, z, mean, log_std
 
+    # We added support for multivariate normal distributions
     def get_action(self, state):
         state = torch.FloatTensor(state).unsqueeze(0)
         mean, log_std = self.forward(state)
         std = log_std.exp()
 
-        # mvn = MultivariateNormal(loc, scale_tril=torch.diag(scale))
-        # z = mvn.sample()
         loc = torch.zeros(mean.size())
         scale = torch.ones(mean.size())
         if mean.size()[1] == 1:
@@ -155,6 +151,7 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
+# We implemented PER from scratch following the API of the ReplayBuffer class
 class PER(ReplayBuffer):
     def __init__(self, capacity, state_size, action_size):
         super(PER, self).__init__(capacity)

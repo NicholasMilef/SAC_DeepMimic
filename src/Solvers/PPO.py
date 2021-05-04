@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch.distributions import Normal, MultivariateNormal
 from Solvers.AbstractSolver import AbstractSolver
 
-
+# PPO implementation from https://github.com/nikhilbarhate99/PPO-PyTorch
 class ActorCritic(nn.Module):
     def __init__(self, state_size, action_size):
         super(ActorCritic, self).__init__()
